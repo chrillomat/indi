@@ -939,32 +939,69 @@ int gphoto_get_iso_current(gphoto_driver *gphoto)
 
 gphoto_driver *gphoto_open(const char *shutter_release_port)
 {
-    gphoto_driver *gphoto;
-    gphoto_widget *widget;
-    Camera  *canon;
-    GPContext *canoncontext = create_context();
-    int result;
+	gphoto_driver *gphoto;
+	gphoto_widget *widget;
+	Camera  *canon = NULL;
+	GPContext *canoncontext = create_context();
+	CameraList *list;
+	CameraAbilities canonabilities;
+	CameraAbilitiesList *canonabilitieslist = NULL;
+	GPPortInfoList *portinfolist = NULL;
+	GPPortInfo pi;
+	const char *name,*port;
+	int result=-1, count=-1;
 
     DEBUGDEVICE(device, INDI::Logger::DBG_DEBUG,"Opening gphoto");
     //gp_log_add_func(GP_LOG_ERROR, errordumper, NULL);
     gp_camera_new(&canon);
 
-    /* When I set GP_LOG_DEBUG instead of GP_LOG_ERROR above, I noticed that the
-     * init function seems to traverse the entire filesystem on the camera.  This
-     * is partly why it takes so long.
-     * (Marcus: the ptp2 driver does this by default currently.)
-     */
-    DEBUGDEVICE(device, INDI::Logger::DBG_DEBUG,"Camera init.  Takes about 10 seconds.");
-    result = gp_camera_init(canon, canoncontext);
-    if (result != GP_OK)
-    {
-        DEBUGFDEVICE(device, INDI::Logger::DBG_ERROR,"Camera open error (%d): %s", result, gp_result_as_string(result));
-        return NULL;
-    }
+	/* When I set GP_LOG_DEBUG instead of GP_LOG_ERROR above, I noticed that the
+	 * init function seems to traverse the entire filesystem on the camera.  This
+	 * is partly why it takes so long.
+	 * (Marcus: the ptp2 driver does this by default currently.)
+	 */
 
-    gphoto = (gphoto_driver*) calloc(sizeof(gphoto_driver), 1);
-    gphoto->camera = canon;
-    gphoto->context = canoncontext;
+    DEBUGDEVICE(device, INDI::Logger::DBG_DEBUG,"Camera selection...");
+        gp_list_new(&list);
+	gp_list_reset(list);
+	count  = gp_camera_autodetect(list, canoncontext);
+	DEBUGFDEVICE(device, INDI::Logger::DBG_DEBUG,"Camera count: %d", count);
+	for (int i=0;i<count;i++) {
+	  gp_list_get_name(list, i, &name);
+	  gp_list_get_value(list, i, &port);
+	  DEBUGFDEVICE(device, INDI::Logger::DBG_DEBUG,"Trying camera %s on port %s", name, port);
+	  gp_abilities_list_new(&canonabilitieslist);
+	  gp_abilities_list_load(canonabilitieslist,canoncontext);
+	  result = gp_abilities_list_lookup_model(canonabilitieslist,name);
+	  gp_abilities_list_get_abilities(canonabilitieslist,result,&canonabilities);
+	  gp_camera_set_abilities(canon, canonabilities);
+	  gp_port_info_list_new (&portinfolist);
+	  gp_port_info_list_load (portinfolist);
+	  gp_port_info_list_count (portinfolist);
+	  result = gp_port_info_list_lookup_path (portinfolist, port);
+	  gp_port_info_list_get_info (portinfolist, result, &pi);
+	  gp_camera_set_port_info (canon, pi);
+	  DEBUGDEVICE(device, INDI::Logger::DBG_DEBUG,"Camera init.  Takes about 10 seconds.");
+	  result = gp_camera_init(canon, canoncontext);
+	  if (result != GP_OK) {
+	    DEBUGFDEVICE(device, INDI::Logger::DBG_DEBUG,"  Retval: %d - %s", result, gp_result_as_string(result));
+	    continue;
+	  } else {
+	    DEBUGFDEVICE(device, INDI::Logger::DBG_SESSION,"Successfully opened camera %s.", name);
+	    break;
+	  }
+	}
+	gp_list_free(list);
+	gp_abilities_list_free(canonabilitieslist);
+	gp_port_info_list_free(portinfolist);
+	if (result != GP_OK) {
+	  DEBUGDEVICE(device, INDI::Logger::DBG_DEBUG,"Failed to open camera.");
+	  return NULL;
+	}
+
+	gphoto = (gphoto_driver*) calloc(sizeof(gphoto_driver), 1);
+	gphoto->camera = canon;
+	gphoto->context = canoncontext;
 
     result = gp_camera_get_config (gphoto->camera, &gphoto->config, gphoto->context);
     if (result < GP_OK) {
