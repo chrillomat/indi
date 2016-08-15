@@ -1165,9 +1165,37 @@ int V4L2_Base::check_device(char *errmsg) {
     // 	if (fmt.fmt.pix.sizeimage < min)
     // 		fmt.fmt.pix.sizeimage = min;
 
-    /* Refresh the instance format with the current device format */
-    CLEAR(fmt);
-    return ioctl_set_format(fmt, errmsg);
+
+  // wgc: some webcams need fmt init when first connected after powerup (e.g. Microsoft LifeCam HD-3000)
+  CLEAR(fmt);
+
+  // v4l2_format
+  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  fmt.fmt.pix.width = 1280;
+  fmt.fmt.pix.height = 720;
+  fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // especially this seem to be important
+  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
+
+  if (-1 == XIOCTL(fd, VIDIOC_S_FMT, &fmt))
+    errno_exit("VIDIOC_S_FMT", errmsg);
+  
+  /* Let's get the actual size */
+  CLEAR(fmt);
+  
+  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  
+  if (-1 == XIOCTL (fd, VIDIOC_G_FMT, &fmt))
+    return errno_exit ("VIDIOC_G_FMT", errmsg);
+  decoder->setformat(fmt, has_ext_pix_format);
+  bpp=decoder->getBpp();
+  
+  
+  /*	DEBUGF(INDI::Logger::DBG_SESSION,"Current capture settings: %dx%d image size, %c%c%c%c (%s) image format",  
+	fmt.fmt.pix.width,  fmt.fmt.pix.height, (fmt.fmt.pixelformat)&0xFF, (fmt.fmt.pixelformat >> 8)&0xFF,
+	(fmt.fmt.pixelformat >> 16)&0xFF, (fmt.fmt.pixelformat >> 24)&0xFF, (decoder->issupportedformat(fmt.fmt.pixelformat)?"supported":"UNSUPPORTED"));
+  */
+
+  return 0;
 }
 
 int V4L2_Base::init_device(char *errmsg) {

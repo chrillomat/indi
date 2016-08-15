@@ -759,7 +759,9 @@ bool V4L2_Driver::setShutter(double duration)
 
 bool V4L2_Driver::setManualExposure(double duration)
 {
-
+  DEBUG(INDI::Logger::DBG_ERROR, "wgc: avoid manual exposure.");
+  return false;
+  
   if (AbsExposureN == NULL || ManualExposureSP == NULL)
     return false;
   
@@ -822,7 +824,7 @@ void V4L2_Driver::start_capturing() {
 
 void V4L2_Driver::stop_capturing() {
   char errmsg[ERRMSGSIZ];
-  if (!is_capturing) return;
+  //if (!is_capturing) return; // wgc: stop v4l2 device in any case
   v4l_base->stop_capturing(errmsg);
   is_capturing = false;
 }
@@ -939,7 +941,7 @@ void V4L2_Driver::stackFrame()
     dest=V4LFrame->stackedFrame;
     for (i=0; i < v4l_base->getWidth() * v4l_base->getHeight(); i++)
       *dest++ += *src++;
-    subframeCount+=1;    
+    subframeCount+=1;
   }
 
 }
@@ -1147,9 +1149,9 @@ void V4L2_Driver::newFrame()
     else
     {
       //if (!is_streaming && !is_recording) stop_capturing();
-      if (streamer->isBusy() == false)
-          stop_capturing();
-      else IDLog("%s: streamer is busy, continue capturing\n",__FUNCTION__);
+      // wgc: do not stop stream (removes setup time for oncoming captures)
+      //if (streamer->isBusy() == false)
+      //    stop_capturing();
 
       DEBUGF(INDI::Logger::DBG_SESSION, "Capture of one frame (%d stacked frames) took %ld.%06ld seconds.", subframeCount, current_exposure.tv_sec, current_exposure.tv_usec);
       ExposureComplete(&PrimaryCCD);
@@ -1162,8 +1164,9 @@ void V4L2_Driver::newFrame()
       /* If we arrive here, PrimaryCCD is not exposing anymore, we can't forward the frame and we can't be aborted neither, thus abort the exposure right now.
        * That issue can be reproduced when clicking the "Set" button on the "Main Control" tab while an exposure is running.
        * Note that the patch in StartExposure returning busy instead of error prevents the flow from coming here, so now it's only a safeguard. */
-      IDLog("%s: frame received while not exposing, force-aborting capture\n",__FUNCTION__);
-      AbortExposure();
+      // TODO: wgc
+      //IDLog("%s: frame received while not exposing, force-aborting capture\n",__FUNCTION__);
+      //AbortExposure();
       is_exposing = false;
   }
 }
@@ -1209,6 +1212,7 @@ bool V4L2_Driver::Connect()
 bool V4L2_Driver::Disconnect()
 {
   if (isConnected()) {
+    stop_capturing(); // wgc: finally, stop video stream 
     v4l_base->disconnectCam(PrimaryCCD.isExposing() || streamer->isBusy());
     if (PrimaryCCD.isExposing() || streamer->isBusy())
       streamer->close();
@@ -1377,6 +1381,12 @@ bool V4L2_Driver::StopStreaming()
 bool V4L2_Driver::saveConfigItems(FILE *fp)
 {
     INDI::CCD::saveConfigItems(fp);
+    IUSaveConfigText(fp, &PortTP);
+    IUSaveConfigNumber(fp, PrimaryCCD.getCCDInfo());
+    //INDI::CCD::saveConfigItems(fp);
+    ////IUSaveConfigSwitch(fp, &DropFrameSP); // not needed anymore when stream is not stopped after capture
+    ////IUSaveConfigNumber(fp, &FramestoDropNP);
+    IUSaveConfigSwitch(fp, &StackModeSP);
 
     return streamer->saveConfigItems(fp);
 }
