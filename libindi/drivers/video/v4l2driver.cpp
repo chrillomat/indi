@@ -19,6 +19,8 @@
 
 #endif
 
+#define WITH_V4L2_EXPERIMENTS
+
 #include "v4l2driver.h"
 
 V4L2_Driver::V4L2_Driver()
