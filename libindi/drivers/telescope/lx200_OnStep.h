@@ -25,7 +25,7 @@
 #include "lx200generic.h"
 
 #define UnParkOnStep(fd)				write(fd, "#:hR#", 5)	// azwing
-#define setParkOnStep(fd)				write(fd, "#:hQ#", 5)	// azwing
+#define setParkOnStep(fd)				write(fd, "#:hP#", 5)	// azwing
 #define EnaTrackOnStep(fd)				write(fd, "#:Te#", 5)	// azwing
 #define DisTrackOnStep(fd)              		write(fd, "#:Td#", 5)   // azwing
 #define ReticPlus(fd)              			write(fd, "#:B+#", 5)   // azwing
