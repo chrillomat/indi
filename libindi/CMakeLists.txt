@@ -376,7 +376,7 @@ set(lx200generic_SRCS
 
 add_executable(indi_lx200generic ${lx200generic_SRCS})
 
-target_link_libraries(indi_lx200generic indidriver)
+target_link_libraries(indi_lx200generic indidriver indiAlignmentDriver)
 
 install(TARGETS indi_lx200generic RUNTIME DESTINATION bin )
 

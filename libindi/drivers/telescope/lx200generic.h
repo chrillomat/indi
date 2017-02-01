@@ -21,6 +21,7 @@
 #ifndef LX200GENERIC_H
 #define LX200GENERIC_H
 
+#include "indibase/alignment/AlignmentSubsystemForDrivers.h"
 #include "indiguiderinterface.h"
 #include "inditelescope.h"
 #include "indicontroller.h"
@@ -28,7 +29,7 @@
 #include "indidevapi.h"
 #include "indicom.h"
 
-class LX200Generic: public INDI::Telescope, public INDI::GuiderInterface
+class LX200Generic: public INDI::Telescope, public INDI::GuiderInterface, public INDI::AlignmentSubsystem::AlignmentSubsystemForDrivers
 {
  public:
     LX200Generic();
@@ -44,9 +45,11 @@ class LX200Generic: public INDI::Telescope, public INDI::GuiderInterface
     virtual bool ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n);
     virtual bool ISNewSwitch (const char *dev, const char *name, ISState *states, char *names[], int n);
     virtual bool ISNewText (const char *dev, const char *name, char *texts[], char *names[], int n);
-
+    virtual bool ISNewBLOB (const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[], char *names[], int n);
     void updateFocusTimer();
     void guideTimeout();
+    ln_equ_posn TelescopeToSky(double ra,double dec);
+    ln_equ_posn SkyToTelescope(double ra,double dec);
 
   protected:
 

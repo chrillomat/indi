@@ -47,7 +47,9 @@
 #include "lx200ss2000pc.h"
 #include "lx200_OnStep.h"
 #include "lx200_10micron.h"
-					       
+
+using namespace INDI::AlignmentSubsystem;
+
 // We declare an auto pointer to LX200Generic.
 std::unique_ptr<LX200Generic> telescope;
 
@@ -195,15 +197,10 @@ void ISNewNumber(const char *dev, const char *name, double values[], char *names
 
 void ISNewBLOB (const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[], char *names[], int n)
 {
-  INDI_UNUSED(dev);
-  INDI_UNUSED(name);
-  INDI_UNUSED(sizes);
-  INDI_UNUSED(blobsizes);
-  INDI_UNUSED(blobs);
-  INDI_UNUSED(formats);
-  INDI_UNUSED(names);
-  INDI_UNUSED(n);
+        ISInit();
+        telescope->ISNewBLOB(dev, name, sizes, blobsizes, blobs, formats, names, n);
 }
+
 void ISSnoopDevice (XMLEle *root)
 {
     ISInit();
@@ -313,6 +310,11 @@ bool LX200Generic::initProperties()
 
     setDriverInterface(getDriverInterface() | GUIDER_INTERFACE);
 
+    // Add alignment properties
+    InitAlignmentProperties(this);
+    // Force the alignment system to always be on
+    getSwitch("ALIGNMENT_SUBSYSTEM_ACTIVE")->sp[0].s = ISS_ON;
+    
     return true;
 }
 
@@ -481,16 +483,28 @@ bool LX200Generic::ReadScopeStatus()
       return false;
     }
 
-    NewRaDec(currentRA, currentDEC);
+    //  Before we pass this back to a client
+    //  run it thru the alignment matrix to correct the data
+    ln_equ_posn eq;
+
+    eq=TelescopeToSky(currentRA,currentDEC);
+    //  Now feed the rest of the system with corrected data
+    NewRaDec(eq.ra,eq.dec);
 
     return true;
 }
 
 bool LX200Generic::Goto(double r,double d)
 {
-    targetRA=r;
-    targetDEC=d;
     char RAStr[64], DecStr[64];
+    ln_equ_posn eq;
+
+    DEBUGF(INDI::Logger::DBG_SESSION,"Enter Goto %g %g",r,d);
+
+    eq=SkyToTelescope(r,d);
+    targetRA=eq.ra;
+    targetDEC=eq.dec;
+    DEBUGF(INDI::Logger::DBG_SESSION,"Corrected Goto %g %g",targetRA,targetDEC);
 
     fs_sexa(RAStr, targetRA, 2, 3600);
     fs_sexa(DecStr, targetDEC, 2, 3600);
@@ -555,33 +569,89 @@ bool LX200Generic::Goto(double r,double d)
 bool LX200Generic::Sync(double ra, double dec)
 {
     char syncString[256];
+    ln_equ_posn eq;
+    AlignmentDatabaseEntry NewEntry;
+    ln_lnlat_posn here;
+    ln_hrz_posn altaz;
+    double lst,lha;
 
-    if (isSimulation() == false &&
-            (setObjectRA(PortFD, ra) < 0 || (setObjectDEC(PortFD, dec)) < 0))
+    if (getSwitch("ALIGNMENT_SUBSYSTEM_ACTIVE")->sp[0].s == ISS_ON)
     {
-        EqNP.s = IPS_ALERT;
-        IDSetNumber(&EqNP, "Error setting RA/DEC. Unable to Sync.");
-        return false;
+	    DEBUGF(INDI::Logger::DBG_SESSION,"Sync %g %g -> %g %g\n",currentRA,currentDEC,ra,dec);
+
+
+	    //  this is where we think we are pointed now
+	    //  and we need to set a sync point in the alignment database
+
+	    /*
+	    //  working entirely in eq co-ordinates, this is all we need to do here
+	    //  we need these numbers in degrees
+	    eq.ra=currentRA*360.0/24.0;	//  this is wanted in degrees, not hours
+	    eq.dec=currentDEC;
+	    NewEntry.TelescopeDirection=TelescopeDirectionVectorFromEquatorialCoordinates(eq);
+
+	    //  if working in alt/az co-ordinates, we need to do this as well
+	    here.lat=LocationN[LOCATION_LATITUDE].value;
+	    here.lng=LocationN[LOCATION_LONGITUDE].value;
+	    ln_get_hrz_from_equ(&eq,&here,ln_get_julian_from_sys(),&altaz);
+	    NewEntry.TelescopeDirection=TelescopeDirectionVectorFromAltitudeAzimuth(altaz);
+	    */
+
+	    //  if we are working in lha/dec co-ordinates, we need to do these steps
+	    //  the steps above dont matter
+	    lst=get_local_sideral_time(LocationN[LOCATION_LONGITUDE].value);
+	    lha=get_local_hour_angle(lst,currentRA);
+	    //  convert lha to degrees
+	    lha=lha*360.0/24.0;
+	    eq.ra=lha;
+	    eq.dec=currentDEC;
+	    NewEntry.TelescopeDirection=TelescopeDirectionVectorFromLocalHourAngleDeclination(eq);
+
+	    //  Flesh out the rest of the information for this sync point
+	    NewEntry.ObservationJulianDate = ln_get_julian_from_sys();
+	    NewEntry.RightAscension=ra;
+	    NewEntry.Declination=dec;
+	    NewEntry.PrivateDataSize=0;
+	    if (!CheckForDuplicateSyncPoint(NewEntry))
+	    {
+	        GetAlignmentDatabase().push_back(NewEntry);
+	        // Tell the client about size change
+	        UpdateSize();
+	        // Tell the math plugin to reinitialise
+	        Initialise(this);
+	        return true;
+	    }
+	    return false;
+
+    } else {
+
+        if (isSimulation() == false &&
+		    (setObjectRA(PortFD, ra) < 0 || (setObjectDEC(PortFD, dec)) < 0))
+	    {
+	        EqNP.s = IPS_ALERT;
+	        IDSetNumber(&EqNP, "Error setting RA/DEC. Unable to Sync.");
+	        return false;
+	    }
+
+	    if (isSimulation() == false &&  ::Sync(PortFD, syncString) < 0)
+	    {
+	        EqNP.s = IPS_ALERT;
+	        IDSetNumber(&EqNP , "Synchronization failed.");
+	        return false;
+	    }
+
+	    currentRA  = ra;
+	    currentDEC = dec;
+
+	    DEBUG(INDI::Logger::DBG_SESSION, "Synchronization successful.");
+
+	    TrackState = SCOPE_IDLE;
+	    EqNP.s    = IPS_OK;
+
+	    NewRaDec(currentRA, currentDEC);
+
+	    return true;
     }
-
-    if (isSimulation() == false &&  ::Sync(PortFD, syncString) < 0)
-    {
-        EqNP.s = IPS_ALERT;
-        IDSetNumber(&EqNP , "Synchronization failed.");
-        return false;
-    }
-
-    currentRA  = ra;
-    currentDEC = dec;
-
-    DEBUG(INDI::Logger::DBG_SESSION, "Synchronization successful.");
-
-    TrackState = SCOPE_IDLE;
-    EqNP.s    = IPS_OK;
-
-    NewRaDec(currentRA, currentDEC);
-
-    return true;
 }
 
 bool LX200Generic::Park()
@@ -769,7 +839,8 @@ bool LX200Generic::updateTime(ln_date * utc, double utc_offset)
 
 bool LX200Generic::updateLocation(double latitude, double longitude, double elevation)
 {
-    INDI_UNUSED(elevation);
+    // update location in alignment subsystem
+    UpdateLocation(latitude, longitude, elevation);
 
     if (isSimulation())
         return true;
@@ -799,6 +870,8 @@ bool LX200Generic::ISNewText (const char *dev, const char *name, char *texts[], 
 {
     if(strcmp(dev,getDeviceName())==0)
     {
+	    ProcessAlignmentTextProperties(this, name, texts, names, n);
+	    
         if (!strcmp (name, SiteNameTP.name) )
         {
           if (isSimulation() == false && setSiteName(PortFD, texts[0], currentSiteNum) < 0)
@@ -824,6 +897,8 @@ bool LX200Generic::ISNewNumber (const char *dev, const char *name, double values
 {
     if(strcmp(dev,getDeviceName())==0)
     {
+	    ProcessAlignmentNumberProperties(this, name, values, names, n);
+	    
         // Update Frequency
         if ( !strcmp (name, TrackingFreqNP.name) )
         {
@@ -890,6 +965,8 @@ bool LX200Generic::ISNewSwitch (const char *dev, const char *name, ISState *stat
 
     if(strcmp(dev,getDeviceName())==0)
     {
+	    ProcessAlignmentSwitchProperties(this, name, states, names, n);
+	    
         // Alignment
         if (!strcmp (name, AlignmentSP.name))
         {
@@ -1058,6 +1135,17 @@ bool LX200Generic::ISNewSwitch (const char *dev, const char *name, ISState *stat
 
 }
 
+bool LX200Generic::ISNewBLOB (const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[], char *names[], int n)
+{
+    if(strcmp(dev,getDeviceName())==0)
+    {
+        // It is for us
+        ProcessAlignmentBLOBProperties(this, name, sizes, blobsizes, blobs, formats, names, n);
+    }
+    // Pass it up the chain
+    return INDI::Telescope::ISNewBLOB(dev, name, sizes, blobsizes, blobs, formats, names, n);
+}
+
 bool LX200Generic::SetSlewRate(int index)
 {
    // Convert index to Meade format
@@ -1206,8 +1294,13 @@ void LX200Generic::mountSim ()
 	    break;
     }
 
-    NewRaDec(currentRA, currentDEC);
+    //  Before we pass this back to a client
+    //  run it thru the alignment matrix to correct the data
+    ln_equ_posn eq;
 
+    eq=TelescopeToSky(currentRA,currentDEC);
+    //  Now feed the rest of the system with corrected data
+    NewRaDec(eq.ra,eq.dec);
 
 }
 
@@ -1692,5 +1785,139 @@ void LX200Generic::guideTimeout()
         GuideWETID = 0;
         IDSetNumber(&GuideWENP, NULL);
     }
+}
+
+// this is adapted from synscanmount.cpp:        
+ln_equ_posn LX200Generic::TelescopeToSky(double ra,double dec)
+{
+    double RightAscension,Declination;
+    ln_equ_posn eq;
+
+    if(GetAlignmentDatabase().size() >= 1) {
+
+    	TelescopeDirectionVector TDV;
+
+        /*  Use this if we ar converting eq co-ords
+	//  but it's broken for now
+    	eq.ra=ra*360/24;
+    	eq.dec=dec;
+    	TDV=TelescopeDirectionVectorFromEquatorialCoordinates(eq);
+	*/
+
+	/* This code does a conversion from ra/dec to alt/az
+	// before calling the alignment stuff
+        ln_lnlat_posn here;
+    	ln_hrz_posn altaz;
+
+    	here.lat=LocationN[LOCATION_LATITUDE].value;
+    	here.lng=LocationN[LOCATION_LONGITUDE].value;
+    	eq.ra=ra*360.0/24.0;	//  this is wanted in degrees, not hours
+    	eq.dec=dec;
+    	ln_get_hrz_from_equ(&eq,&here,ln_get_julian_from_sys(),&altaz);
+    	TDV=TelescopeDirectionVectorFromAltitudeAzimuth(altaz);
+*/	
+
+	/*  and here we convert from ra/dec to hour angle / dec before calling alignment stuff */
+    	double lha,lst;
+	lst=get_local_sideral_time(LocationN[LOCATION_LONGITUDE].value);
+	lha=get_local_hour_angle(lst,ra);
+	//  convert lha to degrees
+	lha=lha*360/24;
+	eq.ra=lha;
+	eq.dec=dec;
+    	TDV=TelescopeDirectionVectorFromLocalHourAngleDeclination(eq);
+      
+	
+    	if (TransformTelescopeToCelestial( TDV, RightAscension, Declination)) {
+	    //  if we get here, the conversion was successful
+	    //fprintf(stderr,"new values %6.4f %6.4f %6.4f  %6.4f Deltas %3.0lf %3.0lf\n",ra,dec,RightAscension,Declination,(ra-RightAscension)*60,(dec-Declination)*60);
+    	} else {
+	    //if the conversion failed, return raw data
+            RightAscension=ra;
+            Declination=dec;       
+    	}
+
+    } else {
+	//  With less than 2 align points
+	// Just return raw data
+    	RightAscension=ra;
+	Declination=dec;
+    }
+
+    eq.ra=RightAscension;
+    eq.dec=Declination;
+    return eq;
+}
+
+// this is adapted from synscanmount.cpp:
+ln_equ_posn LX200Generic::SkyToTelescope(double ra,double dec)
+{
+
+    ln_equ_posn eq;
+    ln_lnlat_posn here;
+    ln_hrz_posn altaz;
+    TelescopeDirectionVector TDV;
+    double RightAscension,Declination;
+
+/*
+*/
+
+
+    if(GetAlignmentDatabase().size() >= 1) {
+	//  if the alignment system has been turned off
+	//  this transformation will fail, and we fall thru
+	//  to using raw co-ordinates from the mount
+	if(TransformCelestialToTelescope(ra, dec, 0.0, TDV)) {
+
+            /*  Initial attemp, using RA/DEC co-ordinates talking to alignment system
+    	    EquatorialCoordinatesFromTelescopeDirectionVector(TDV,eq);
+	    RightAscension=eq.ra*24.0/360;
+	    Declination=eq.dec;
+	    if(RightAscension < 0) RightAscension+=24.0;
+    	    DEBUGF(INDI::Logger::DBG_SESSION,"Transformed Co-ordinates %g %g\n",RightAscension,Declination);
+            */
+
+
+	    //  nasty altaz kludge, use al/az co-ordinates to talk to alignment system
+	    /*
+            eq.ra=ra*360/24;
+            eq.dec=dec;
+            here.lat=LocationN[LOCATION_LATITUDE].value;
+            here.lng=LocationN[LOCATION_LONGITUDE].value;
+            ln_get_hrz_from_equ(&eq,&here,ln_get_julian_from_sys(),&altaz);
+	    AltitudeAzimuthFromTelescopeDirectionVector(TDV,altaz);
+	    //  now convert the resulting altaz into radec
+    	    ln_get_equ_from_hrz(&altaz,&here,ln_get_julian_from_sys(),&eq);
+	    RightAscension=eq.ra*24.0/360.0;
+	    Declination=eq.dec;
+            */
+            
+
+	    /* now lets convert from telescope to lha/dec */
+	    double lst;
+	    LocalHourAngleDeclinationFromTelescopeDirectionVector(TDV,eq);
+	    //  and now we have to convert from lha back to RA
+	    lst=get_local_sideral_time(LocationN[LOCATION_LONGITUDE].value);
+	    eq.ra=eq.ra*24/360;
+	    RightAscension=lst-eq.ra;
+	    RightAscension=range24(RightAscension);
+	    Declination=eq.dec;
+	    
+
+        } else {
+            DEBUGF(INDI::Logger::DBG_SESSION,"Transform failed, using raw co-ordinates %g %g\n",ra,dec);
+	    RightAscension=ra;
+	    Declination=dec;
+        }
+    } else {
+    	RightAscension=ra;
+    	Declination=dec;
+    }
+
+    eq.ra=RightAscension;
+    eq.dec=Declination;
+    //eq.ra=ra;
+    //eq.dec=dec;
+    return eq;
 }
 
