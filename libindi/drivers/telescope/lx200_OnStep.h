@@ -69,6 +69,9 @@ protected:
  INumberVectorProperty MaxSlewRateNP;
  INumber MaxSlewRateN[1];
 
+ INumberVectorProperty TrackingRateNP;
+ INumber TrackingRateN[2];
+ 
  INumberVectorProperty ElevationLimitNP;
  INumber ElevationLimitN[2];
  

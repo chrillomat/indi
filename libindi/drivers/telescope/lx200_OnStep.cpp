@@ -82,6 +82,10 @@ bool LX200_OnStep::initProperties()
     IUFillNumber(&MaxSlewRateN[0], "maxSlew", "Rate", "%g", 2.0, 9.0, 1.0, 9.0);
     IUFillNumberVector(&MaxSlewRateNP, MaxSlewRateN, 1, getDeviceName(), "Max slew Rate", "", MOTION_TAB, IP_RW, 0, IPS_IDLE);
 
+    IUFillNumber(&TrackingRateN[0], "trackingRateRA", "Rate RA", "%f", -255.999, 255.999, 0.0, 1.0); // TODO: read from device (getBasicData?)
+    IUFillNumber(&TrackingRateN[1], "trackingRateDE", "Rate DE", "%f", -255.999, 255.999, 0.0, 0.0);
+    IUFillNumberVector(&TrackingRateNP, TrackingRateN, 2, getDeviceName(), "Tracking Rate", "", MOTION_TAB, IP_RW, 0, IPS_IDLE);
+
     IUFillNumber(&ElevationLimitN[0], "minAlt", "Speed", "%+03f", -90.0, 90.0, 0.0, 0.0);	// double % typo
     IUFillNumber(&ElevationLimitN[1], "maxAlt", "Speed", "%+03f", -90.0, 90.0, 0.0, 0.0);
     IUFillNumberVector(&ElevationLimitNP, ElevationLimitN, 1, getDeviceName(), "Slew elevation Limit", "", MAIN_CONTROL_TAB, IP_RW, 0, IPS_IDLE);
@@ -122,6 +126,7 @@ void LX200_OnStep::ISGetProperties (const char *dev)
       defineSwitch(&DeepSkyCatalogSP);
       defineNumber(&ObjectNoNP);
       defineNumber(&MaxSlewRateNP);
+      defineNumber(&TrackingRateNP);
   }
 }
 
@@ -141,6 +146,7 @@ bool LX200_OnStep::updateProperties()
         defineSwitch(&DeepSkyCatalogSP);
         defineNumber(&ObjectNoNP);
         defineNumber(&MaxSlewRateNP);
+        defineNumber(&TrackingRateNP);
         return true;
     }
     else
@@ -155,6 +161,7 @@ bool LX200_OnStep::updateProperties()
         deleteProperty(DeepSkyCatalogSP.name);
         deleteProperty(ObjectNoNP.name);
         deleteProperty(MaxSlewRateNP.name);
+        deleteProperty(TrackingRateNP.name);
         return true;
     }
 }
@@ -211,6 +218,24 @@ bool LX200_OnStep::ISNewNumber (const char *dev, const char *name, double values
           return true;
         }
 
+        if ( !strcmp (name, TrackingRateNP.name) )
+        {
+
+
+         if ( setTrackingRate(PortFD, values[0], values[1]) )
+         {
+             TrackingRateNP.s = IPS_ALERT;
+             IDSetNumber(&TrackingRateNP, "Error setting tracking rate.");
+             return false;
+         }
+
+          TrackingRateNP.s = IPS_OK;
+          TrackingRateNP.np[0].value = values[0];
+          TrackingRateNP.np[1].value = values[1];
+          IDSetNumber(&TrackingRateNP, NULL);
+          return true;
+        }
+        
         if (!strcmp (name, ElevationLimitNP.name))
         {
             // new elevation limits

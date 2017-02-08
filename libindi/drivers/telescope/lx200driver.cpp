@@ -119,6 +119,10 @@ int setObjAlt(int fd, double alt);
 int setSiteName(int fd, char * siteName, int siteNum);
 /* Set maximum slew rate */
 int setMaxSlewRate(int fd, int slewRate);
+/* Set tracking rate, LX200 OnStep only, rate=1 means sidereal rate */
+int setTrackingRate(int fd, double rate1, double rate2);
+int setTrackingRate1(int fd, double rate);
+int setTrackingRate2(int fd, double rate);
 /* Set focuser motion */
 int setFocuserMotion(int fd, int motionType);
 /* Set focuser speed mode */
@@ -731,6 +735,40 @@ int setMaxSlewRate(int fd, int slewRate)
    snprintf(temp_string, sizeof( temp_string ), ":Sw%d#", slewRate);
 
    return (setStandardProcedure(fd, temp_string));
+
+}
+
+int setTrackingRate1(int fd, double rate)
+{    
+   DEBUGFDEVICE(lx200Name, DBG_SCOPE, "<%s>: rate=%f", __FUNCTION__, rate);
+
+   char temp_string[16];
+
+   snprintf(temp_string, sizeof( temp_string ), ":SXR1,%.3f#", rate);
+//   snprintf(temp_string, sizeof( temp_string ), ":SXR1,%06d#", (int) round(rate*1000.0));
+
+   return (setStandardProcedure(fd, temp_string));
+
+}
+
+int setTrackingRate2(int fd, double rate)
+{    
+   DEBUGFDEVICE(lx200Name, DBG_SCOPE, "<%s>: rate=%f", __FUNCTION__, rate);
+
+   char temp_string[16];
+
+   snprintf(temp_string, sizeof( temp_string ), ":SXR2,%.3f#", rate);
+//   snprintf(temp_string, sizeof( temp_string ), ":SXR2,%06d#", (int) round(rate*1000.0));
+
+   return (setStandardProcedure(fd, temp_string));
+
+}
+
+int setTrackingRate(int fd, double rate1 , double rate2)
+{    
+   DEBUGFDEVICE(lx200Name, DBG_SCOPE, "<%s>: rate1=%f, rate2=%f", __FUNCTION__, rate1, rate2);
+
+   return (setTrackingRate1(fd, rate1) + setTrackingRate2(fd, rate2));
 
 }
 

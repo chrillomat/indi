@@ -195,6 +195,10 @@ int setObjAlt(int fd, double alt);
 int setSiteName(int fd, char * siteName, int siteNum);
 /* Set maximum slew rate */
 int setMaxSlewRate(int fd, int slewRate);
+/* Set tracking rate, LX200 OnStep only, rate=1 means sidereal rate */
+int setTrackingRate(int fd, double rate1, double rate2);
+int setTrackingRate1(int fd, double rate);
+int setTrackingRate2(int fd, double rate);
 /* Set focuser motion */
 int setFocuserMotion(int fd, int motionType);
 /* SET GPS Focuser raneg (1 to 4) */
