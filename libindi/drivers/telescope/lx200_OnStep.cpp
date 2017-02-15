@@ -548,3 +548,13 @@ void LX200_OnStep::OnStepStat()
        }
            DEBUG(INDI::Logger::DBG_ERROR, OnStepStatus);
 }
+
+
+bool LX200_OnStep::saveConfigItems(FILE *fp)
+{
+    INDI::Telescope::saveConfigItems(fp);
+
+    IUSaveConfigSwitch(fp, &UsePulseCmdSP);
+
+    return true;
+}

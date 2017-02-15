@@ -44,6 +44,7 @@ class LX200_OnStep:public LX200Generic
  bool updateProperties();
  bool ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n);
  bool ISNewSwitch (const char *dev, const char *name, ISState *states, char *names[], int n);
+ virtual bool saveConfigItems(FILE *fp);
 
  
 protected:
