@@ -465,6 +465,8 @@ bool LX200Generic::ReadScopeStatus()
 
             TrackState=SCOPE_TRACKING;
             IDMessage(getDeviceName(),"Slew is complete. Tracking...");
+            // TODO: wait here for onStep to be responsive again after goto
+            return true;
 
         }
     }
@@ -473,6 +475,8 @@ bool LX200Generic::ReadScopeStatus()
         if(isSlewComplete())
         {
             SetParked(true);
+            // TODO: wait here for onStep to be responsive again after park
+            return true;
         }
     }
 
