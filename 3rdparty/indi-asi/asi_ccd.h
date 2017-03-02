@@ -101,6 +101,8 @@ private:
   void updateRecorderFormat();
   /** Control cooler */
   bool activateCooler(bool enable);
+  /** Emulate ISO settings (i.e. set gain & offset */
+  bool setISO(int index);
 
   char name[MAXINDIDEVICE];
 
@@ -119,12 +121,17 @@ private:
 
   ISwitch *VideoFormatS;
   ISwitchVectorProperty VideoFormatSP;
+  
+  ISwitch IsoS[6];
+  ISwitchVectorProperty IsoSP;
 
   double minimumExposureDuration = 0;
   struct timeval ExpStart;
   float ExposureRequest;
   float TemperatureRequest;
   int TemperatureUpdateCounter;
+  const int iso2Gain[6]={0,75,139,200,250,300};
+  const int iso2Offset[6]={10,15,21,50,60,65};
 
   ASI_CAMERA_INFO *m_camInfo;
   ASI_CONTROL_CAPS *pControlCaps;

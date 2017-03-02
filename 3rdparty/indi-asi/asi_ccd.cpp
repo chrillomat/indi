@@ -229,6 +229,16 @@ bool ASICCD::initProperties()
   IUFillNumber(&CoolerN[0], "CCD_COOLER_VALUE", "Cooling Power (%)", "%+06.2f", 0., 1., .2, 0.0);
   IUFillNumberVector(&CoolerNP, CoolerN, 1, getDeviceName(), "CCD_COOLER_POWER", "Cooling Power", MAIN_CONTROL_TAB, IP_RO, 60, IPS_IDLE);
 
+  // define pseudo ISO settings (i.e. tuples of gain and offset assigned to an index) - this can be useful in sequences when different gains are required
+  // TODO: make this user configurable / camera dependent (the values below are for ASI1600)
+  IUFillSwitch(&IsoS[0], "0/10", "Gain 0 / Offset 10", ISS_OFF);
+  IUFillSwitch(&IsoS[1], "75/15", "Gain 75 / Offset 15", ISS_OFF);
+  IUFillSwitch(&IsoS[2], "139/21", "Gain 139 / Offset 21", ISS_ON);
+  IUFillSwitch(&IsoS[3], "200/50", "Gain 200 / Offset 50", ISS_OFF);
+  IUFillSwitch(&IsoS[4], "250/60", "Gain 250 / Offset 60", ISS_OFF);
+  IUFillSwitch(&IsoS[5], "300/65", "Gain 300 / Offset 65", ISS_OFF);
+  IUFillSwitchVector(&IsoSP, IsoS, 6, getDeviceName(), "CCD_ISO", "ISO", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 0, IPS_IDLE);
+
   IUFillNumberVector(&ControlNP, NULL, 0, getDeviceName(), "CCD_CONTROLS", "Controls", CONTROL_TAB, IP_RW, 60, IPS_IDLE);
 
   IUFillSwitchVector(&ControlSP, NULL, 0, getDeviceName(), "CCD_CONTROLS_MODE", "Set Auto", CONTROL_TAB, IP_RW, ISR_NOFMANY, 60, IPS_IDLE);
@@ -316,6 +326,8 @@ bool ASICCD::updateProperties()
     if (VideoFormatSP.nsp > 0)
         defineSwitch(&VideoFormatSP);
 
+    defineSwitch(&IsoSP);
+
     SetTimer(POLLMS);
   } else
   {
@@ -336,6 +348,8 @@ bool ASICCD::updateProperties()
 
     if (VideoFormatSP.nsp > 0)
         deleteProperty(VideoFormatSP.name);
+
+    deleteProperty(IsoSP.name);
   }
 
   return true;
@@ -709,6 +723,23 @@ bool ASICCD::ISNewSwitch (const char *dev, const char *name, ISState *states, ch
             return true;
         }
 
+        if (!strcmp(name, IsoSP.name))
+        {
+            if (IUUpdateSwitch(&IsoSP, states, names, n) < 0)
+                return false;
+
+            for (int i = 0; i < IsoSP.nsp; i++)
+            {
+                if (IsoS[i].s == ISS_ON)
+                {
+                    setISO(i);
+                    updateControls();
+                    IsoSP.s = IPS_OK;
+                    IDSetSwitch(&IsoSP, NULL);
+                    break;
+                }
+            }
+        }
     }
 
    return INDI::CCD::ISNewSwitch(dev,name,states,names,n);
@@ -803,6 +834,24 @@ bool ASICCD::activateCooler(bool enable)
     IDSetSwitch(&CoolerSP, NULL);
 
     return rc;
+}
+
+bool ASICCD::setISO(int index)
+{
+    ASI_ERROR_CODE errCode = ASI_SUCCESS;
+    if (index >= 0 && index < IsoSP.nsp)
+    {
+        // TODO: set via indi props!
+        DEBUGF(INDI::Logger::DBG_SESSION,  "Setting gain to %d.", iso2Gain[index]);
+        errCode=ASISetControlValue(m_camInfo->CameraID, ASI_GAIN, iso2Gain[index], ASI_FALSE);
+        if (errCode != ASI_SUCCESS) return false;
+        DEBUGF(INDI::Logger::DBG_SESSION,  "Setting offset to %d.", iso2Offset[index]);
+        errCode=ASISetControlValue(m_camInfo->CameraID, ASI_BRIGHTNESS, iso2Offset[index], ASI_FALSE);
+        if (errCode != ASI_SUCCESS) return false;
+        DEBUG(INDI::Logger::DBG_SESSION,  "Setting ISO finished.");
+        return true;
+    } else
+    return false;
 }
 
 bool ASICCD::StartExposure(float duration)
