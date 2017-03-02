@@ -1580,6 +1580,14 @@ void ASICCD::addFITSKeywords(fitsfile *fptr, CCDChip *targetChip)
         int status=0;
         fits_update_key_s(fptr, TDOUBLE, "Gain", &(gainNP->value), "Gain", &status);
     }
+
+    INumber *offsetNP = IUFindNumber(&ControlNP, "Brightness");
+
+    if (offsetNP)
+    {
+        int status=0;
+        fits_update_key_s(fptr, TDOUBLE, "Offset", &(offsetNP->value), "Offset", &status);
+    }
 }
 
 bool ASICCD::saveConfigItems(FILE *fp)
